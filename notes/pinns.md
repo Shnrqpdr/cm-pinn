@@ -19,8 +19,8 @@ Physics-Informed Neural Networks (PINNs) são redes neurais que incorporam leis 
 2. **Método livre de malha (mesh-free):** Diferente de métodos numéricos clássicos (FEM, diferenças finitas, volumes finitos), PINNs não requerem discretização do domínio em malhas. A solução é avaliada em pontos de colocação amostrados no domínio.
 
 3. **Problemas diretos e inversos no mesmo framework:** O mesmo código pode resolver:
-   - **Problemas diretos (forward):** dadas as equações e condições de contorno/iniciais, encontrar a solução u(t,x).
-   - **Problemas inversos:** dados observações esparsas da solução, identificar parâmetros desconhecidos λ da EDP.
+   - **Problemas diretos (forward):** dadas as equações e condições de contorno/iniciais, encontrar a solução $u(t,x)$.
+   - **Problemas inversos:** dados observações esparsas da solução, identificar parâmetros desconhecidos $\lambda$ da EDP.
 
 4. **Unificação de dados e física:** PINNs operam como um framework de aprendizado multi-tarefa onde a rede deve simultaneamente ajustar dados observados e satisfazer resíduos da EDP.
 
@@ -39,64 +39,50 @@ Physics-Informed Neural Networks (PINNs) são redes neurais que incorporam leis 
 
 Considere uma EDP da forma geral:
 
-```
-∂u/∂t + N[u; λ] = 0,    x ∈ Ω, t ∈ [0, T]
-```
+$$\frac{\partial u}{\partial t} + \mathcal{N}[u; \lambda] = 0, \quad x \in \Omega, \quad t \in [0, T]$$
 
 onde:
-- `u(t, x)` é a solução latente (desconhecida)
-- `N[u; λ]` é um operador diferencial não-linear com parâmetros λ
-- `Ω ⊂ R^D` é o domínio espacial
-- Condições de contorno: `B(u, x, t) = 0` em `∂Ω`
-- Condições iniciais: `u(x, 0) = u₀(x)`
+- $u(t, x)$ é a solução latente (desconhecida)
+- $\mathcal{N}[u; \lambda]$ é um operador diferencial não-linear com parâmetros $\lambda$
+- $\Omega \subset \mathbb{R}^D$ é o domínio espacial
+- Condições de contorno: $B(u, x, t) = 0$ em $\partial\Omega$
+- Condições iniciais: $u(x, 0) = u_0(x)$
 
 ### 2.2 Construção da PINN
 
 Define-se o **resíduo da EDP**:
 
-```
-f(t, x) := ∂u/∂t + N[u; λ]
-```
+$$f(t, x) := \frac{\partial u}{\partial t} + \mathcal{N}[u; \lambda]$$
 
-Uma rede neural profunda `u_NN(t, x; Θ)` aproxima a solução u(t,x). Aplicando diferenciação automática (autograd) para computar as derivadas parciais de `u_NN` em relação a t e x, obtém-se a rede informada pela física `f_NN(t, x; Θ)`.
+Uma rede neural profunda $u_{\text{NN}}(t, x; \Theta)$ aproxima a solução $u(t,x)$. Aplicando diferenciação automática (autograd) para computar as derivadas parciais de $u_{\text{NN}}$ em relação a $t$ e $x$, obtém-se a rede informada pela física $f_{\text{NN}}(t, x; \Theta)$.
 
-**Ponto crucial:** Ambas as redes — `u_NN` e `f_NN` — compartilham os mesmos parâmetros Θ (pesos e bias). A rede `f_NN` não tem parâmetros treináveis adicionais; ela é construída puramente por diferenciação automática sobre `u_NN`.
+**Ponto crucial:** Ambas as redes — $u_{\text{NN}}$ e $f_{\text{NN}}$ — compartilham os mesmos parâmetros $\Theta$ (pesos e bias). A rede $f_{\text{NN}}$ não tem parâmetros treináveis adicionais; ela é construída puramente por diferenciação automática sobre $u_{\text{NN}}$.
 
 ### 2.3 Função de perda
 
 A função de perda composta tem a forma:
 
-```
-L(Θ) = ω_data · L_data + ω_pde · L_pde + ω_bc · L_bc + ω_ic · L_ic
-```
+$$L(\Theta) = \omega_{\text{data}} \cdot L_{\text{data}} + \omega_{\text{pde}} \cdot L_{\text{pde}} + \omega_{\text{bc}} \cdot L_{\text{bc}} + \omega_{\text{ic}} \cdot L_{\text{ic}}$$
 
 onde:
 
-- **L_data** (dados): MSE entre predições e dados observados (se disponíveis)
-  ```
-  L_data = (1/N_u) Σᵢ |u_NN(tᵢ, xᵢ; Θ) - uᵢ|²
-  ```
+- **$L_{\text{data}}$** (dados): MSE entre predições e dados observados (se disponíveis)
+  $$L_{\text{data}} = \frac{1}{N_u} \sum_{i=1}^{N_u} |u_{\text{NN}}(t_i, x_i; \Theta) - u_i|^2$$
 
-- **L_pde** (resíduo da EDP): MSE do resíduo nos pontos de colocação
-  ```
-  L_pde = (1/N_f) Σᵢ |f_NN(tᵢ, xᵢ; Θ)|²
-  ```
+- **$L_{\text{pde}}$** (resíduo da EDP): MSE do resíduo nos pontos de colocação
+  $$L_{\text{pde}} = \frac{1}{N_f} \sum_{i=1}^{N_f} |f_{\text{NN}}(t_i, x_i; \Theta)|^2$$
 
-- **L_bc** (condições de contorno):
-  ```
-  L_bc = (1/N_b) Σᵢ |B(u_NN) - g|²
-  ```
+- **$L_{\text{bc}}$** (condições de contorno):
+  $$L_{\text{bc}} = \frac{1}{N_b} \sum_{i=1}^{N_b} |B(u_{\text{NN}}) - g|^2$$
 
-- **L_ic** (condições iniciais):
-  ```
-  L_ic = (1/N_0) Σᵢ |u_NN(0, xᵢ; Θ) - u₀(xᵢ)|²
-  ```
+- **$L_{\text{ic}}$** (condições iniciais):
+  $$L_{\text{ic}} = \frac{1}{N_0} \sum_{i=1}^{N_0} |u_{\text{NN}}(0, x_i; \Theta) - u_0(x_i)|^2$$
 
-Os pesos ω controlam a importância relativa de cada termo. O balanceamento desses pesos é **crítico** para a convergência (ver Seção 5).
+Os pesos $\omega$ controlam a importância relativa de cada termo. O balanceamento desses pesos é **crítico** para a convergência (ver Seção 5).
 
 ### 2.4 Pontos de colocação
 
-Os pontos de colocação `{tᵢ, xᵢ}` onde o resíduo da EDP é avaliado são tipicamente gerados por:
+Os pontos de colocação $\{t_i, x_i\}$ onde o resíduo da EDP é avaliado são tipicamente gerados por:
 
 - **Latin Hypercube Sampling (LHS):** Estratégia quasi-aleatória que garante cobertura uniforme do domínio. Método mais usado na literatura de PINNs.
 - **Distribuição uniforme:** Mais simples, mas pode ter cobertura pior em altas dimensões.
@@ -108,12 +94,9 @@ Os pontos de colocação `{tᵢ, xᵢ}` onde o resíduo da EDP é avaliado são 
 As condições de contorno são incluídas como termos na função de perda. Simples de implementar, mas as condições são satisfeitas apenas aproximadamente.
 
 **Hard enforcement (PCNN - Physics-Constrained NN):**
-A arquitetura da rede é modificada para que a saída automaticamente satisfaça as condições de contorno para qualquer entrada. Por exemplo, para condições de Dirichlet homogêneas u(0)=u(1)=0:
+A arquitetura da rede é modificada para que a saída automaticamente satisfaça as condições de contorno para qualquer entrada. Por exemplo, para condições de Dirichlet homogêneas $u(0)=u(1)=0$:
 
-```python
-# Saída modificada que satisfaz u(0) = u(1) = 0 automaticamente
-u_hard(x) = x * (1 - x) * u_NN(x)
-```
+$$u_{\text{hard}}(x) = x(1-x) \cdot u_{\text{NN}}(x)$$
 
 Vantagem: Simplifica o problema de otimização, eliminando termos da função de perda.
 
@@ -125,32 +108,30 @@ Vantagem: Simplifica o problema de otimização, eliminando termos da função d
 
 O modelo contínuo trata tempo e espaço simetricamente como entradas da rede:
 
-- **Entrada:** (t, x₁, x₂, ..., x_d)
-- **Saída:** u(t, x)
+- **Entrada:** $(t, x_1, x_2, \ldots, x_d)$
+- **Saída:** $u(t, x)$
 - **Treinamento:** Minimiza o resíduo da EDP em pontos de colocação espalhados por todo o domínio espaço-temporal.
 
-**Vantagens:** Predição contínua em qualquer ponto (t,x); formulação simples.
+**Vantagens:** Predição contínua em qualquer ponto $(t,x)$; formulação simples.
 **Desvantagens:** Pode ter dificuldade com domínios temporais longos; necessita muitos pontos de colocação em altas dimensões.
 
 ### 3.2 Modelo de tempo discreto (Runge-Kutta)
 
 Proposto por Raissi et al. (2019) como alternativa que elimina a necessidade de pontos de colocação temporais.
 
-**Ideia:** Usar um esquema Runge-Kutta implícito com q estágios para avançar de tₙ para tₙ₊₁:
+**Ideia:** Usar um esquema Runge-Kutta implícito com $q$ estágios para avançar de $t_n$ para $t_{n+1}$:
 
-```
-u^{n+cⱼ} = uⁿ + Δt Σⱼ aᵢⱼ g[u^{n+cⱼ}],    i = 1,...,q
-u^{n+1}  = uⁿ + Δt Σⱼ bⱼ g[u^{n+cⱼ}]
-```
+$$u^{n+c_j} = u^n + \Delta t \sum_{j=1}^{q} a_{ij} g[u^{n+c_j}], \quad i = 1, \ldots, q$$
+$$u^{n+1} = u^n + \Delta t \sum_{j=1}^{q} b_j g[u^{n+c_j}]$$
 
-A rede neural prediz `[u^{n+c₁}, ..., u^{n+cq}, u^{n+1}]` a partir da entrada espacial x. O esquema é então "invertido": o lado direito (dependente da rede) é usado para estimar uⁿ, que é comparado com os dados conhecidos em tₙ.
+A rede neural prediz $[u^{n+c_1}, \ldots, u^{n+c_q}, u^{n+1}]$ a partir da entrada espacial $x$. O esquema é então "invertido": o lado direito (dependente da rede) é usado para estimar $u^n$, que é comparado com os dados conhecidos em $t_n$.
 
 **Vantagens notáveis:**
-- O número de estágios q pode ser muito grande (ex: q=100) sem aumento significativo do custo computacional, pois adicionar um estágio apenas acrescenta um neurônio à camada de saída.
+- O número de estágios $q$ pode ser muito grande (ex: $q=100$) sem aumento significativo do custo computacional, pois adicionar um estágio apenas acrescenta um neurônio à camada de saída.
 - Esquemas Gauss-Legendre implícitos permanecem A-estáveis independentemente da ordem, ideais para problemas rígidos (stiff).
 - Permite passos temporais muito grandes mantendo estabilidade e precisão.
 
-**Exemplo marcante:** No paper original, a equação de Allen-Cahn foi resolvida com q=100 estágios em um único passo temporal (Δt=0.8), com erro temporal teórico de O(Δt^200) ≈ 10⁻²⁰.
+**Exemplo marcante:** No paper original, a equação de Allen-Cahn foi resolvida com $q=100$ estágios em um único passo temporal ($\Delta t=0.8$), com erro temporal teórico de $O(\Delta t^{200}) \approx 10^{-20}$.
 
 ---
 
@@ -158,11 +139,9 @@ A rede neural prediz `[u^{n+c₁}, ..., u^{n+cq}, u^{n+1}]` a partir da entrada 
 
 ### 4.1 Feed-Forward Neural Network (FFNN / MLP)
 
-A arquitetura padrão das PINNs. Uma rede fully-connected com L camadas:
+A arquitetura padrão das PINNs. Uma rede fully-connected com $L$ camadas:
 
-```
-u_NN(x) = σ_L ∘ W_L ∘ σ_{L-1} ∘ W_{L-1} ∘ ... ∘ σ_1 ∘ W_1 (x)
-```
+$$u_{\text{NN}}(x) = \sigma_L \circ W_L \circ \sigma_{L-1} \circ W_{L-1} \circ \cdots \circ \sigma_1 \circ W_1 (x)$$
 
 **Configurações típicas na literatura:**
 - Raissi et al. (2019): 5 camadas, 100 neurônios/camada; ou 9 camadas, 20 neurônios/camada
@@ -173,16 +152,16 @@ u_NN(x) = σ_L ∘ W_L ∘ σ_{L-1} ∘ W_{L-1} ∘ ... ∘ σ_1 ∘ W_1 (x)
 
 ### 4.2 Funções de ativação
 
-A escolha da função de ativação é crítica em PINNs porque derivadas de segunda (ou maior) ordem da saída da rede são computadas via autograd. A função de ativação deve ser suficientemente suave (k+1 vezes diferenciável para EDP de ordem k).
+A escolha da função de ativação é crítica em PINNs porque derivadas de segunda (ou maior) ordem da saída da rede são computadas via autograd. A função de ativação deve ser suficientemente suave ($k+1$ vezes diferenciável para EDP de ordem $k$).
 
 | Função | Fórmula | Propriedades |
 |--------|---------|-------------|
-| **tanh** | (eˣ - e⁻ˣ)/(eˣ + e⁻ˣ) | Mais usada em PINNs; C^∞; simétrica; pode sofrer vanishing gradient |
-| **sin** | sin(x) | Usada no HFM; C^∞; estável numericamente para derivadas altas |
-| **Swish** | x·σ(βx) | β treinável; supera tanh em convergência segundo alguns estudos |
-| **SiLU** | x·σ(x) | Swish com β=1; usada em PINNs causais |
-| **ReLU** | max(0, x) | **Evitar em PINNs** — segunda derivada é zero em toda parte |
-| **Sigmoid** | 1/(1+e⁻ˣ) | C^∞ mas não simétrica; usada menos frequentemente |
+| **tanh** | $\frac{e^x - e^{-x}}{e^x + e^{-x}}$ | Mais usada em PINNs; $C^\infty$; simétrica; pode sofrer vanishing gradient |
+| **sin** | $\sin(x)$ | Usada no HFM; $C^\infty$; estável numericamente para derivadas altas |
+| **Swish** | $x \cdot \sigma(\beta x)$ | $\beta$ treinável; supera tanh em convergência segundo alguns estudos |
+| **SiLU** | $x \cdot \sigma(x)$ | Swish com $\beta=1$; usada em PINNs causais |
+| **ReLU** | $\max(0, x)$ | **Evitar em PINNs** — segunda derivada é zero em toda parte |
+| **Sigmoid** | $\frac{1}{1+e^{-x}}$ | $C^\infty$ mas não simétrica; usada menos frequentemente |
 
 **Recomendação:** Para problemas gerais, `tanh` é a escolha padrão segura. Para problemas que requerem derivadas de alta ordem ou soluções oscilatórias, `sin` pode ser superior.
 
@@ -196,7 +175,7 @@ A escolha da função de ativação é crítica em PINNs porque derivadas de seg
 
 ### 4.4 Redes modificadas para PINNs
 
-- **Modified MLP (Wang et al.):** Adiciona transformações U = σ(W_u · x + b_u) e V = σ(W_v · x + b_v) e modifica cada camada como: H^l = (1 - Z^l) ⊙ U + Z^l ⊙ V, onde Z^l é a saída da camada l. Melhora significativamente o fluxo de gradiente.
+- **Modified MLP (Wang et al.):** Adiciona transformações $U = \sigma(W_u \cdot x + b_u)$ e $V = \sigma(W_v \cdot x + b_v)$ e modifica cada camada como: $H^l = (1 - Z^l) \odot U + Z^l \odot V$, onde $Z^l$ é a saída da camada $l$. Melhora significativamente o fluxo de gradiente.
 - **Fourier Feature Networks:** Mapeiam entradas para features de Fourier antes da rede, ajudando a superar o spectral bias.
 
 ---
@@ -208,25 +187,25 @@ A escolha da função de ativação é crítica em PINNs porque derivadas de seg
 **Estratégia padrão (Adam + L-BFGS):**
 A combinação mais robusta empiricamente observada na literatura:
 
-1. **Fase 1 — Adam:** Otimizador de primeira ordem com taxa de aprendizado adaptativa. Usado nas primeiras N épocas (ex: 3000-10000) para chegar a uma vizinhança do mínimo.
-   - Learning rate típico: 10⁻³ a 10⁻⁴
+1. **Fase 1 — Adam:** Otimizador de primeira ordem com taxa de aprendizado adaptativa. Usado nas primeiras $N$ épocas (ex: 3000-10000) para chegar a uma vizinhança do mínimo.
+   - Learning rate típico: $10^{-3}$ a $10^{-4}$
    - Decay exponencial recomendado
 
 2. **Fase 2 — L-BFGS:** Otimizador quasi-Newton de segunda ordem. Usado após Adam para refinamento final com convergência rápida local.
    - Full-batch (sem mini-batches)
    - Muito eficiente quando próximo do mínimo
 
-**Variação no HFM (Raissi et al., 2018):** Treinamento progressivo com learning rates decrescentes: 250 epochs com lr=10⁻³, depois 500 com lr=10⁻⁴, depois 250 com lr=10⁻⁵.
+**Variação no HFM (Raissi et al., 2018):** Treinamento progressivo com learning rates decrescentes: 250 epochs com $\text{lr}=10^{-3}$, depois 500 com $\text{lr}=10^{-4}$, depois 250 com $\text{lr}=10^{-5}$.
 
 ### 5.2 Balanceamento da função de perda (Loss Balancing)
 
 **Este é um dos problemas mais críticos das PINNs.** Os diferentes termos da função de perda (dados, EDP, contorno, inicial) tipicamente têm magnitudes muito diferentes, causando:
 - O termo de resíduo da EDP frequentemente domina, obscurecendo as condições de contorno/iniciais.
-- A rede pode satisfazer a EDP de maneira trivial (ex: u ≡ 0) em vez da solução correta.
+- A rede pode satisfazer a EDP de maneira trivial (ex: $u \equiv 0$) em vez da solução correta.
 
 **Técnicas de balanceamento:**
 
-1. **Pesos fixos empíricos:** Multiplicar termos menores por fatores escalares determinados empiricamente. Ex: Kollmannsberger et al. usaram fator 5×10⁻⁴ no termo MSE_f.
+1. **Pesos fixos empíricos:** Multiplicar termos menores por fatores escalares determinados empiricamente. Ex: Kollmannsberger et al. usaram fator $5 \times 10^{-4}$ no termo $\text{MSE}_f$.
 
 2. **Learning Rate Annealing (Wang et al., 2021):** Ajusta dinamicamente os pesos usando as estatísticas dos gradientes de cada termo.
 
@@ -242,7 +221,7 @@ Para EDPs dependentes do tempo, treinamento padrão pode falhar porque a rede te
 
 **Causal Training (Wang et al.):** Divide o domínio temporal em segmentos e pondera a perda acumulativamente — regiões temporais posteriores só contribuem significativamente quando regiões anteriores já convergem.
 
-Demonstrado no paper de PINNs para a equação de Schrödinger: sem treinamento causal, o erro explode em domínios temporais longos (MSE ~ 10⁻²); com treinamento causal, o erro cai para ~10⁻³.
+Demonstrado no paper de PINNs para a equação de Schrödinger: sem treinamento causal, o erro explode em domínios temporais longos (MSE $\sim 10^{-2}$); com treinamento causal, o erro cai para $\sim 10^{-3}$.
 
 ### 5.4 Amostragem adaptativa de pontos de colocação
 
@@ -259,9 +238,7 @@ Em vez de fixar os pontos de colocação, redistribuí-los durante o treinamento
 
 O erro total de uma PINN pode ser decomposto em (De Ryck & Mishra, Acta Numerica 2024):
 
-```
-Erro Total = Erro de Aproximação + Erro de Generalização + Erro de Treinamento
-```
+$$\text{Erro Total} = \text{Erro de Aproximação} + \text{Erro de Generalização} + \text{Erro de Treinamento}$$
 
 - **Erro de aproximação:** Quão bem a classe de redes neurais pode representar a solução verdadeira. Depende da arquitetura (largura, profundidade).
 - **Erro de generalização:** Diferença entre o risco empírico (nos pontos de treinamento) e o risco populacional (em todo o domínio). Diminui com o número de pontos de colocação.
@@ -272,7 +249,7 @@ Erro Total = Erro de Aproximação + Erro de Generalização + Erro de Treinamen
 Redes neurais são **aproximadores universais** (Hornik et al., 1989): qualquer função contínua pode ser aproximada arbitrariamente bem por um MLP com uma camada oculta e neurônios suficientes.
 
 Para PINNs especificamente:
-- Redes com ativação tanh de profundidade O(log(1/ε)) e largura O(1/ε^d) podem aproximar funções suaves com erro ε em dimensão d.
+- Redes com ativação tanh de profundidade $O(\log(1/\varepsilon))$ e largura $O(1/\varepsilon^d)$ podem aproximar funções suaves com erro $\varepsilon$ em dimensão $d$.
 - Redes mais profundas são exponencialmente mais eficientes que redes rasas para certas classes de funções.
 
 ### 6.3 Estabilidade e papel na análise de erros
@@ -286,9 +263,9 @@ A **estabilidade** da EDP subjacente é fundamental para a análise de erros de 
 
 ### 6.4 Erro de generalização
 
-O número de pontos de colocação N_f necessários para boa generalização depende da dimensão d do problema e da regularidade da solução:
+O número de pontos de colocação $N_f$ necessários para boa generalização depende da dimensão $d$ do problema e da regularidade da solução:
 
-- Para soluções suaves: N_f ~ O(1/ε^d) (maldição da dimensionalidade para métodos clássicos)
+- Para soluções suaves: $N_f \sim O(1/\varepsilon^d)$ (maldição da dimensionalidade para métodos clássicos)
 - PINNs podem potencialmente superar a maldição da dimensionalidade para certas classes de EDPs, embora resultados teóricos completos ainda não estejam disponíveis.
 
 ### 6.5 Erro de treinamento — o gargalo
@@ -312,13 +289,13 @@ Redes neurais treinadas por gradiente descendente aprendem preferenciamente comp
 - Interfaces afiadas ou descontinuidades
 
 **Mitigações:**
-- Fourier Feature Networks: mapear entradas x → [sin(ωx), cos(ωx)] com múltiplas frequências ω
+- Fourier Feature Networks: mapear entradas $x \to [\sin(\omega x), \cos(\omega x)]$ com múltiplas frequências $\omega$
 - Escalamento de variáveis (adimensionalização cuidadosa)
 - Redes multi-escala
 
 ### 7.2 Convergência para soluções triviais
 
-PINNs podem convergir para soluções triviais (ex: u ≡ 0) que satisfazem a EDP homogênea mas violam condições de contorno. Isso ocorre quando:
+PINNs podem convergir para soluções triviais (ex: $u \equiv 0$) que satisfazem a EDP homogênea mas violam condições de contorno. Isso ocorre quando:
 - Os pesos da perda de contorno/inicial são insuficientes
 - O resíduo da EDP domina o treinamento
 
@@ -356,11 +333,9 @@ PINNs baseadas em MLP produzem soluções suaves por construção (funções de 
 
 Em vez de usar o resíduo forte (pointwise), usa-se a formulação variacional/fraca da EDP:
 
-```
-L_vpinn = ∫ f_NN(x) · v(x) dx
-```
+$$L_{\text{vpinn}} = \int f_{\text{NN}}(x) \cdot v(x) \, dx$$
 
-onde v(x) são funções teste. Pode ser mais robusta para problemas com soluções menos regulares.
+onde $v(x)$ são funções teste. Pode ser mais robusta para problemas com soluções menos regulares.
 
 ### 8.2 Conservative PINNs (CPINNs)
 
@@ -376,7 +351,7 @@ Dividem o domínio em subdomínios, cada um com sua própria rede PINN, com cond
 
 ### 8.5 DeepONet e Neural Operators
 
-Aprendem o **operador** solução G: f → u, não uma solução particular. Uma vez treinado, pode resolver a EDP para diferentes condições iniciais/contorno sem re-treinamento. Conceito mais poderoso, mas requer mais dados de treinamento.
+Aprendem o **operador** solução $\mathcal{G}: f \to u$, não uma solução particular. Uma vez treinado, pode resolver a EDP para diferentes condições iniciais/contorno sem re-treinamento. Conceito mais poderoso, mas requer mais dados de treinamento.
 
 ### 8.6 Transfer Learning para PINNs
 
@@ -396,30 +371,30 @@ Pré-treinar a PINN em um problema mais simples (ou com parâmetros diferentes) 
 
 **Raissi et al. (2018) — Hidden Fluid Mechanics (HFM):**
 - Navier-Stokes 2D e 3D: inferência de campos de velocidade e pressão a partir de visualização de escalares passivos (fumaça/corante).
-- Fluxo em torno de cilindros (Re=100, Re=200)
+- Fluxo em torno de cilindros ($\text{Re}=100$, $\text{Re}=200$)
 - Fluxo 3D de esteira de cilindro com Navier-Stokes
 - Demonstrou capacidade de inferir pressão sem dados diretos de pressão
 - Aplicação biomédica: potencial para hemodinâmica em artérias
 
 **Problema direto (Navier-Stokes):**
-- Aprendeu os parâmetros λ₁ (convecção) e λ₂ (viscosidade) com erros < 1% e < 6%, respectivamente
+- Aprendeu os parâmetros $\lambda_1$ (convecção) e $\lambda_2$ (viscosidade) com erros $< 1\%$ e $< 6\%$, respectivamente
 - Robusto a 1% de ruído gaussiano nos dados
 
 ### 9.2 Mecânica quântica
 
 **Shah et al. — PINNs para equação de Schrödinger dependente do tempo:**
 - Oscilador harmônico quântico unidimensional
-- Superposição de autoestados |ψ₀₁⟩ e |ψ₀₃⟩
-- Decomposição da função de onda complexa ψ = u + iv em parte real e imaginária
-- Resultados do baseline: MSE ~ 10⁻⁵ para |ψ|²
-- **Generalização:** Treinou para ω ∈ [0.75, 2.0] e testou para ω ∈ [0.5, 2.5] — boa interpolação, extrapolação degradada
-- **Domínios temporais longos:** Sem tratamento causal, erro explode (MSE ~ 10⁻²); com treinamento causal, erro cai para ~10⁻³
+- Superposição de autoestados $|\psi_{01}\rangle$ e $|\psi_{03}\rangle$
+- Decomposição da função de onda complexa $\psi = u + iv$ em parte real e imaginária
+- Resultados do baseline: MSE $\sim 10^{-5}$ para $|\psi|^2$
+- **Generalização:** Treinou para $\omega \in [0.75, 2.0]$ e testou para $\omega \in [0.5, 2.5]$ — boa interpolação, extrapolação degradada
+- **Domínios temporais longos:** Sem tratamento causal, erro explode (MSE $\sim 10^{-2}$); com treinamento causal, erro cai para $\sim 10^{-3}$
 - **Estados de alta energia:** PINN padrão converge falsamente para estado fundamental; treinamento causal resolve o problema
 
 **Detalhes de implementação:**
 - 6 camadas, 512 neurônios cada (FCN-PINN)
 - Ativação: tanh (baseline) ou SiLU (causal)
-- Otimizador: Adam com β₁=0.09, β₂=0.999, lr=10⁻³ com decay exponencial
+- Otimizador: Adam com $\beta_1=0.09$, $\beta_2=0.999$, $\text{lr}=10^{-3}$ com decay exponencial
 
 ### 9.3 Nano-óptica e metamateriais
 
@@ -528,15 +503,15 @@ def train(model, t_data, x_data, u_data, t_colloc, x_colloc, epochs):
 
 ### 10.3 Checklist de implementação
 
-1. **Adimensionalizar as equações** — Normalizar variáveis para que entradas e saídas estejam em escalas similares (idealmente [0,1] ou [-1,1]).
+1. **Adimensionalizar as equações** — Normalizar variáveis para que entradas e saídas estejam em escalas similares (idealmente $[0,1]$ ou $[-1,1]$).
 
 2. **Escolher arquitetura** — Começar com: 4-8 camadas ocultas, 20-100 neurônios/camada, ativação tanh.
 
-3. **Gerar pontos de colocação** — LHS é o padrão; usar N_f ≫ N_data.
+3. **Gerar pontos de colocação** — LHS é o padrão; usar $N_f \gg N_{\text{data}}$.
 
 4. **Inicializar pesos** — Xavier/Glorot initialization é o padrão para tanh.
 
-5. **Configurar treinamento** — Adam (10⁻³ → 10⁻⁴) + L-BFGS.
+5. **Configurar treinamento** — Adam ($10^{-3} \to 10^{-4}$) + L-BFGS.
 
 6. **Monitorar cada componente da loss** separadamente — Verificar se nenhum termo domina excessivamente.
 
@@ -545,8 +520,8 @@ def train(model, t_data, x_data, u_data, t_colloc, x_colloc, epochs):
 ### 10.4 Dicas de depuração
 
 - Se a loss não diminui: reduzir learning rate, verificar escalamento, simplificar o problema
-- Se L_pde diminui mas L_bc/L_ic não: aumentar pesos dos termos de contorno
-- Se a solução é trivial (u≈0): aumentar significativamente o peso das condições de contorno/iniciais
+- Se $L_{\text{pde}}$ diminui mas $L_{\text{bc}}/L_{\text{ic}}$ não: aumentar pesos dos termos de contorno
+- Se a solução é trivial ($u \approx 0$): aumentar significativamente o peso das condições de contorno/iniciais
 - Se há oscilações: verificar derivadas com autograd, tentar ativação sin em vez de tanh
 - Para domínios temporais longos: usar treinamento causal ou time-stepping
 
@@ -556,33 +531,30 @@ def train(model, t_data, x_data, u_data, t_colloc, x_colloc, epochs):
 
 ### 11.1 Formulação Lagrangiana
 
-Para um sistema mecânico com Lagrangiana L = T - V (energia cinética menos potencial):
+Para um sistema mecânico com Lagrangiana $L = T - V$ (energia cinética menos potencial):
 
 As equações de Euler-Lagrange:
-```
-d/dt (∂L/∂q̇ᵢ) - ∂L/∂qᵢ = 0
-```
 
-podem ser incorporadas diretamente na loss da PINN. A rede neural parametriza a trajetória q(t) e o resíduo das equações de Euler-Lagrange é minimizado.
+$$\frac{d}{dt} \left(\frac{\partial L}{\partial \dot{q}_i}\right) - \frac{\partial L}{\partial q_i} = 0$$
+
+podem ser incorporadas diretamente na loss da PINN. A rede neural parametriza a trajetória $q(t)$ e o resíduo das equações de Euler-Lagrange é minimizado.
 
 ### 11.2 Formulação Hamiltoniana
 
-Para um sistema com Hamiltoniano H(q, p):
+Para um sistema com Hamiltoniano $H(q, p)$:
 
 As equações de Hamilton:
-```
-dq/dt = ∂H/∂p
-dp/dt = -∂H/∂q
-```
 
-A PINN pode parametrizar (q(t), p(t)) ou diretamente H(q, p) como rede neural (Hamiltonian Neural Networks).
+$$\frac{dq}{dt} = \frac{\partial H}{\partial p}, \quad \frac{dp}{dt} = -\frac{\partial H}{\partial q}$$
+
+A PINN pode parametrizar $(q(t), p(t))$ ou diretamente $H(q, p)$ como rede neural (Hamiltonian Neural Networks).
 
 ### 11.3 Leis de conservação
 
 PINNs podem ser treinadas com termos adicionais na perda para impor conservação:
-- **Energia:** dH/dt = 0 para sistemas conservativos
-- **Momento angular:** dL/dt = 0 na ausência de torques
-- **Momento linear:** dp/dt = 0 na ausência de forças externas
+- **Energia:** $\frac{dH}{dt} = 0$ para sistemas conservativos
+- **Momento angular:** $\frac{dL}{dt} = 0$ na ausência de torques
+- **Momento linear:** $\frac{dp}{dt} = 0$ na ausência de forças externas
 
 Alternativamente, usar arquiteturas que preservem essas simetrias por construção (Symplectic Neural Networks, Hamiltonian Neural Networks).
 
@@ -590,10 +562,10 @@ Alternativamente, usar arquiteturas que preservem essas simetrias por construç�
 
 Para problemas em mecânica clássica, frequentemente lidamos com sistemas de EDOs (não EDPs). A formulação PINN se simplifica:
 
-- Entrada: tempo t
-- Saída: coordenadas generalizadas q₁(t), q₂(t), ..., qₙ(t)
+- Entrada: tempo $t$
+- Saída: coordenadas generalizadas $q_1(t), q_2(t), \ldots, q_n(t)$
 - Loss da EDP: resíduo das equações de movimento
-- Condições iniciais: q(0) = q₀, q̇(0) = v₀
+- Condições iniciais: $q(0) = q_0$, $\dot{q}(0) = v_0$
 
 A ausência de dimensões espaciais torna o treinamento significativamente mais rápido e estável que para EDPs.
 
@@ -602,7 +574,7 @@ A ausência de dimensões espaciais torna o treinamento significativamente mais 
 O problema de Störmer — movimento de uma partícula carregada no campo magnético de um dipolo — é um sistema de EDOs de segunda ordem que pode ser formulado como:
 
 1. Escrever as equações de movimento em coordenadas generalizadas
-2. Parametrizar a trajetória (r(t), θ(t), φ(t)) como saídas da PINN
+2. Parametrizar a trajetória $(r(t), \theta(t), \phi(t))$ como saídas da PINN
 3. O resíduo inclui as equações de Euler-Lagrange do sistema
 4. Condições iniciais definem posição e velocidade inicial da partícula
 
