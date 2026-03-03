@@ -1,2 +1,6 @@
 /references/*
 CLAUDE.md
+*.dat
+env/
+*.png
+*.mp4
