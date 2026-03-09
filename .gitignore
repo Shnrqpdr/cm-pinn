@@ -2,6 +2,6 @@
 CLAUDE.md
 *.dat
 env/
-*.png
+problems/**/*.png
 *.mp4
 .venv/

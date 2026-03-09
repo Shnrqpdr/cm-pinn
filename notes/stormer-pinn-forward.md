@@ -172,7 +172,7 @@ Dataset: `problems/stormer-problem/nn/data/dataset_case1_one_hemisphere.npz`
 
 ### 5.1 Convergência do Treinamento
 
-![Histórico de loss](../problems/stormer-problem/nn/results/case1/loss_history.png)
+![Histórico de loss](./figures/loss_history.png)
 
 A loss total converge suavemente durante a fase Adam, com descida de ~$10^{-1}$ para ~$10^{-6}$. A fase L-BFGS proporciona refinamento adicional até ~$3 \times 10^{-7}$. As componentes individuais mostram que:
 - A loss IC ($\mathcal{L}_\text{ic}$) converge primeiro (peso alto $\omega_\text{ic} = 100$), atingindo $10^{-17}$
@@ -181,19 +181,19 @@ A loss total converge suavemente durante a fase Adam, com descida de ~$10^{-1}$ 
 
 ### 5.2 Comparação PINN vs Solução Analítica
 
-![PINN vs Analítica](../problems/stormer-problem/nn/results/case1/pinn_vs_analytical.png)
+![PINN vs Analítica](./figures/pinn_vs_analytical.png)
 
 As curvas da PINN e da solução analítica são visualmente indistinguíveis para $\theta(t)$ e $\varphi(t)$. O painel de erros mostra que o erro absoluto permanece na faixa $10^{-4}$ a $10^{-3}$ ao longo de toda a trajetória.
 
 ### 5.3 Conservação de Energia
 
-![Resíduo da integral de energia](../problems/stormer-problem/nn/results/case1/energy_conservation.png)
+![Resíduo da integral de energia](./figures/energy_conservation.png)
 
 O resíduo da integral de energia $|w^2 - b^2(B-z^2)(z^2-A)|$ permanece na ordem de $10^{-6}$ a $10^{-7}$, confirmando que a PINN aprendeu a conservar a energia do sistema.
 
 ### 5.4 Trajetória 3D
 
-![Trajetória 3D](../problems/stormer-problem/nn/results/case1/trajectory_3d.png)
+![Trajetória 3D](./figures/trajectory_3d.png)
 
 A trajetória na esfera é reproduzida com fidelidade. A partícula oscila no hemisfério superior ($\theta < \pi/2$), consistente com o regime $A > 0$.
 
