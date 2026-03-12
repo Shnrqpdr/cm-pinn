@@ -6,6 +6,7 @@ Phase 2: L-BFGS refinement
 """
 
 import os
+import sys
 import time
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from pinn_stormer import StormerPINN, StormerPINNTrainer
 
 
@@ -276,7 +278,7 @@ if __name__ == "__main__":
         n_frequencies=10,
         adam_epochs=20000,
         adam_lr=1e-3,
-        lbfgs_epochs=500,
+        lbfgs_epochs=50,
         w_ode=1.0,
         w_ic=100.0,
         w_energy=10.0,

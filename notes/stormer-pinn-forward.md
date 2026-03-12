@@ -231,3 +231,176 @@ A trajetória na esfera é reproduzida com fidelidade. A partícula oscila no he
 6. **Gradient clipping previne instabilidade**: essencial nos estágios iniciais quando os Fourier features podem produzir gradientes grandes.
 
 7. **float64 é necessário**: precisão dupla evita perda de significância nas derivadas automáticas e nas tolerâncias do L-BFGS.
+
+---
+
+## 7. Reflexão: PINN de Trajetória Única vs Parametric PINN
+
+### Limitação do Caso 1
+
+A PINN implementada no Caso 1 recebe **apenas o tempo** $\tau$ como entrada: $\text{NN}(\tau) \to (z, w, \varphi)$. As condições iniciais e parâmetros $(a, b, A, B)$ estão embutidos como constantes na função de perda. Isso significa que a rede aprende **uma única trajetória específica** — se quisermos outra trajetória, precisamos retreinar do zero.
+
+Essa abordagem é essencialmente um ajuste de curva com regularização física. Embora tenha sido útil como benchmark para validar a formulação em $z$, ela não oferece vantagem prática sobre o integrador numérico.
+
+### Parametric PINN (Caso 2) — Hipótese
+
+A alternativa seria uma **Parametric PINN** (também chamada de Meta-PINN na literatura), onde as condições iniciais são entradas da rede:
+
+$$\text{NN}(\tau, z_0, w_0, a, b) \to (z, w, \Delta\varphi)$$
+
+Nessa formulação, a rede aprenderia uma **família de soluções** parametrizada pelas condições iniciais e parâmetros do sistema. Uma vez treinada, funcionaria como um **surrogate solver instantâneo**: prediz a trajetória para qualquer combinação de CIs dentro do domínio de treino, sem retreinar.
+
+| Aspecto | Caso 1 (só $\tau$) | Caso 2 (Parametric) |
+|---------|---------------------|---------------------|
+| O que aprende | Uma trajetória | Família de trajetórias |
+| Generalização | Nenhuma | Interpola entre CIs vistas |
+| Utilidade prática | Benchmark | Surrogate solver |
+| Complexidade de treino | Baixa | Alta (amostra espaço de CIs) |
+| Precisão individual | ~$10^{-4}$ | Tipicamente menor |
+
+Essa direção foi explorada na Seção 8.
+
+---
+
+## 8. Tentativa: PINN Paramétrica — Falha
+
+**Data**: 2026-03-09
+
+### 8.1 Motivação
+
+A PINN do Caso 1 aprende uma única trajetória. Para justificar o uso de PINNs sobre integradores numéricos, seria necessário que a rede oferecesse **generalização** — aprender uma família de soluções e predizer trajetórias para condições iniciais nunca vistas.
+
+### 8.2 Arquitetura
+
+Arquivo: `problems/stormer-problem/nn/pinn_stormer_parametric.py`
+
+| Componente | Especificação |
+|------------|---------------|
+| Entrada | $(\tau_\text{norm}, z_0, w_0, a, b)$ — tempo + 4 parâmetros de CI |
+| Fourier features | Aplicadas apenas ao tempo (21 dims) + 4 params → input dim = 25 |
+| Camadas ocultas | 5 camadas, 256 neurônios cada |
+| Ativação | $\tanh$ |
+| Saída | $(z, w, \Delta\varphi)$ |
+| Precisão | `float64` |
+
+### 8.3 Dataset
+
+Arquivo: `problems/stormer-problem/nn/pinn-parametric-issue4/generate_dataset.py`
+
+**Condições iniciais de treino** (5 casos):
+- fig6a, fig6b (Case 1), fig7a, fig7c do paper + 1 caso amostrado aleatoriamente
+- Mistura de regimes: um hemisfério ($A > 0$) e cruzamento do equador ($A < 0$)
+- Domínios temporais distintos por IC (2 períodos cada)
+- 3000 pontos de colocação por IC (LHS), 10.000 pontos de referência por IC
+
+**Condições iniciais de validação** (4 casos):
+- Amostradas aleatoriamente no espaço de parâmetros, não vistas no treino.
+
+### 8.4 Treinamento
+
+- **Adam**: 20.000 épocas, lr=$10^{-3}$, cosine annealing
+- Per-IC loss averaging: média dentro de cada IC antes de somar entre ICs (evitar que ICs com parâmetros grandes dominem)
+
+### 8.5 Resultados — Falha
+
+A loss ODE estagnou em ~$10^{-1}$ (vs $3 \times 10^{-7}$ no caso single-IC) — **6 ordens de magnitude pior**.
+
+**Erros no treino** (ICs vistas durante treinamento):
+
+| Caso | $\theta$ MAE (rad) | $\varphi$ MAE (rad) |
+|------|---------------------|----------------------|
+| fig6a: one hemisphere | ~0.4 | ~5.0 |
+| fig6b: one hemisphere (Case 1) | ~0.3 | ~2.0 |
+| fig7a: one hemisphere ($p_\theta \neq 0$) | ~0.35 | ~2.2 |
+| fig7c: crosses equator | ~0.5 | ~4.5 |
+| sampled train 1 | ~0.35 | ~0.06 |
+
+**Erros na validação** (ICs nunca vistas): igualmente ruins, com MAE de $\theta$ entre 0.05–0.6 rad e $\varphi$ entre 0.5–3.5 rad.
+
+**Diagnóstico visual**: os gráficos mostram que a PINN aprendeu uma espécie de "média suavizada" das trajetórias — capturando vagamente a tendência geral mas falhando em reproduzir as oscilações corretas de qualquer trajetória individual. A rede não tem capacidade representacional suficiente para mapear o espaço diverso de CIs para trajetórias que são fortemente dependentes das condições iniciais.
+
+### 8.6 Análise da Falha
+
+O problema de Störmer na esfera apresenta **alta sensibilidade às condições iniciais**: pequenas variações em $(z_0, w_0, a, b)$ produzem trajetórias qualitativamente diferentes (regimes distintos, períodos distintos, amplitudes distintas). Isso torna a função que a rede precisa aprender altamente não-suave no espaço de parâmetros.
+
+Fatores que contribuíram para a falha:
+1. **Diversidade de domínios temporais**: cada IC tem $T_\text{final}$ diferente, e o mapeamento $\tau_\text{norm} \in [0,1]$ esconde escalas temporais muito distintas.
+2. **Regimes qualitativamente diferentes**: misturar $A > 0$ (um hemisfério) com $A < 0$ (cruzamento do equador) na mesma rede exige aprender bifurcações.
+3. **Capacidade vs complexidade**: mesmo com 5×256 neurônios, a variabilidade das soluções no espaço de parâmetros é grande demais.
+4. **A loss ODE é uma média global**: a rede "negocia" entre satisfazer a física de todas as ICs e acaba não satisfazendo nenhuma bem.
+
+---
+
+## 9. Nova Estratégia: Portfolio de PINNs Individuais
+
+**Data**: 2026-03-10
+
+### 9.1 Decisão
+
+Dado o fracasso da PINN paramétrica, a nova abordagem é treinar **uma PINN individual por caso do paper**, reutilizando a arquitetura validada no Caso 1 (Seção 4). Essa abordagem é fundamentada no fato de que já demonstramos convergência excelente para uma única trajetória ($\theta$ MAE ~ $10^{-4}$).
+
+### 9.2 Por que não é "ensemble learning"
+
+Na literatura de ML, **ensemble learning** (bagging, boosting, stacking) combina múltiplos modelos que predizem **a mesma coisa** para reduzir variância/bias. Aqui, cada PINN resolve um **problema diferente** (ICs distintas → trajetórias distintas). O correto é chamar de **portfolio de PINNs especializadas** ou simplesmente de **batch training**.
+
+### 9.3 Validação
+
+Para PINNs forward com ICs fixas, a validação **não** segue o paradigma train/validation split do ML supervisionado:
+
+- A PINN não é treinada com dados — usa pontos de colocação onde o resíduo da ODE é avaliado
+- Não há risco de "overfitting a dados" porque não há dados
+- A entrada é apenas $\tau \in [0, 1]$ — a rede é uma função contínua do tempo
+
+A validação consiste em:
+
+1. **Comparação com solução analítica**: avaliar a PINN em pontos densos no domínio $[0, T]$ e comparar com a solução exata. É o validador mais robusto (o que fizemos no Caso 1).
+2. **Conservação de energia**: verificar se $H(t)$ permanece constante ao longo da trajetória.
+3. **Extrapolação temporal** (opcional): treinar em $[0, T]$ e testar em $[T, T + \Delta T]$. PINNs degradam rápido fora do domínio, mas é útil como medida de robustez.
+
+### 9.4 Implementação e Resultados
+
+Diretório: `problems/stormer-problem/nn/pinn-portfolio-issue4/`
+
+Foram treinadas 5 PINNs independentes, uma para cada caso do paper, todas usando a mesma arquitetura validada no Caso 1 (4×128, Fourier 10 freq, Adam 20k + L-BFGS 5).
+
+| Caso | Regime | $\tau_\text{final}$ | Loss total | $\theta$ MAE (rad) | $\varphi$ MAE (rad) | Tempo (s) |
+|------|--------|---------------------|------------|---------------------|----------------------|-----------|
+| fig6c | one hemisphere ($A > 0$) | 2.3 | $1.82 \times 10^{-6}$ | $1.83 \times 10^{-5}$ | $3.02 \times 10^{-5}$ | 1176 |
+| fig7a | one hemisphere ($A > 0$) | 15.5 | $6.87 \times 10^{-7}$ | $2.82 \times 10^{-4}$ | $4.16 \times 10^{-4}$ | 1180 |
+| fig6b | one hemisphere ($A > 0$) | 24.4 | $1.96 \times 10^{-6}$ | $3.03 \times 10^{-3}$ | $3.61 \times 10^{-3}$ | 1199 |
+| **fig6a** | **two hemispheres ($A < 0$)** | **34.5** | $1.78 \times 10^{-3}$ | **0.607** | **0.293** | 938 |
+| **fig7c** | **crosses equator ($A < 0$)** | **30.6** | $1.69 \times 10^{-2}$ | **0.444** | **3.204** | 1194 |
+
+**Tempo total de treino: 94.8 min (5 casos sequenciais).**
+
+### 9.5 Análise: Sucesso nos Casos de Um Hemisfério, Falha no Cruzamento do Equador
+
+Os 3 casos de um hemisfério ($A > 0$) convergiram com precisão excelente (MAE entre $10^{-5}$ e $10^{-3}$), validando a abordagem de portfolio. Nos gráficos, as curvas PINN e analítica são indistinguíveis.
+
+Os 2 casos de dois hemisférios ($A < 0$) falharam completamente. A análise visual mostra que a PINN fica "presa" oscilando perto de $\theta \approx 90°$ (equador) sem aprender a amplitude real da oscilação.
+
+**Fatores que diferenciam os regimes:**
+
+1. **$z(t)$ cruza zero**: no regime $A > 0$, $z = \cos\theta$ oscila entre $\sqrt{A}$ e $\sqrt{B}$ (sempre positivo). No regime $A < 0$, $z$ cruza zero e vai de $-\sqrt{B}$ a $+\sqrt{B}$. A forma da solução (cn ao invés de dn) é mais complexa.
+
+2. **$\tau_\text{final}$ grande**: os dois casos que falharam têm $\tau_\text{final} \approx 30\text{-}35$, o que suprime gradientes via o fator $1/\tau_\text{final}$ na chain rule. Correlação com o MAE:
+   - $\tau = 2.3 \to$ MAE $10^{-5}$
+   - $\tau = 15.5 \to$ MAE $10^{-4}$
+   - $\tau = 24.4 \to$ MAE $10^{-3}$
+   - $\tau = 30\text{-}35 \to$ **falha** (mas apenas quando combinado com $A < 0$)
+
+3. **Integral de energia menos restritiva**: para $A < 0$, $z^2 - A > 0$ sempre, então a constraint de energia não "guia" a rede para a região correta de $z$ tão efetivamente quanto no caso $A > 0$.
+
+### 9.6 Possíveis Estratégias para os Casos de Dois Hemisférios
+
+Ainda não testadas — candidatas para investigação futura:
+
+1. **Mais épocas de Adam** (40k-60k): a loss ainda estava descendo em 20k, mais epochs podem ajudar.
+2. **Rede maior**: 5-6 camadas × 256 neurônios para capturar a complexidade do cn.
+3. **Subdivisão temporal**: treinar em $[0, T/2]$ e $[T/2, T]$ separadamente, com continuidade imposta.
+4. **Curriculum learning**: treinar primeiro em $[0, T/4]$ e progressivamente expandir o domínio.
+5. **Mais pontos de colocação**: 5000-8000 para resolver melhor a ODE.
+
+### 9.7 Possível Extensão Futura: Transfer Learning
+
+Uma vez treinada a primeira PINN, as seguintes poderiam ser inicializadas com os pesos da anterior (ou da PINN cujas ICs estão mais próximas), potencialmente reduzindo o custo de treino. Isso é **transfer learning**, não ensemble, e seria o próximo passo natural se quisermos escalar para muitas ICs.
