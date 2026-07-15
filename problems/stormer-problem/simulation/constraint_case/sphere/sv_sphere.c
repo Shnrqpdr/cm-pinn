@@ -87,8 +87,8 @@ void stormer_verlet_method(double *theta, double *dtheta, double *phi, double *d
     {
 
         // auxiliares
-        momentum_theta_aux = dtheta[n - 1] - deltaT * dHd_theta(theta[n - 1], dtheta[n - 1], phi[n - 1], dphi[n - 1]);
-        momentum_phi_aux = dphi[n - 1] - deltaT * dHd_phi(theta[n - 1], dtheta[n - 1], phi[n - 1], dphi[n - 1]);
+        momentum_theta_aux = dtheta[n - 1] - (deltaT / 2) * dHd_theta(theta[n - 1], dtheta[n - 1], phi[n - 1], dphi[n - 1]);
+        momentum_phi_aux = dphi[n - 1] - (deltaT / 2) * dHd_phi(theta[n - 1], dtheta[n - 1], phi[n - 1], dphi[n - 1]);
 
         // coordenadas
         theta[n] = theta[n - 1] + deltaT * dHd_dtheta(theta[n - 1], momentum_theta_aux, phi[n - 1], dphi[n - 1]);
@@ -97,8 +97,8 @@ void stormer_verlet_method(double *theta, double *dtheta, double *phi, double *d
         // constante de movimento
 
         /* atualização final dos momentos (usar momento no meio do passo para consistência symplectic) */
-        dtheta[n] = momentum_theta_aux - deltaT * dHd_theta(theta[n], momentum_theta_aux, phi[n], momentum_phi_aux);
-        dphi[n] = momentum_phi_aux - deltaT * dHd_phi(theta[n], momentum_theta_aux, phi[n], momentum_phi_aux);
+        dtheta[n] = momentum_theta_aux - (deltaT / 2) * dHd_theta(theta[n], momentum_theta_aux, phi[n], momentum_phi_aux);
+        dphi[n] = momentum_phi_aux - (deltaT / 2) * dHd_phi(theta[n], momentum_theta_aux, phi[n], momentum_phi_aux);
 
         if (n % report_interval == 0 || n == TAM)
         {
@@ -118,12 +118,18 @@ void getData(char fileParticle[], char filePhaseSpace[], double *theta, double *
     phaseSpace = fopen(filePhaseSpace, "w");
 
     fprintf(particle, "n\tx\ty\tz\n");
-    fprintf(phaseSpace, "n\ttheta\tdtheta\n");
+    fprintf(phaseSpace, "n\ttheta\tp_theta\tp_phi\tH\n");
 
     spherical2cartesian(theta, dtheta, phi, dphi, x, dx, y, dy, z, dz, TAM);
     for (int n = 0; n <= TAM; n++)
     {
-        fprintf(particle, "%d %g %g %g\n", n, x[n], y[n], z[n]);
+        fprintf(particle, "%d %.15e %.15e %.15e\n", n, x[n], y[n], z[n]);
+
+        double sin2 = sin(theta[n]) * sin(theta[n]);
+        double eta = dphi[n] + k * sin2;
+        double H_n = (dtheta[n] * dtheta[n] + eta * eta / sin2) / (2.0 * M * R * R);
+        fprintf(phaseSpace, "%d\t%.15e\t%.15e\t%.15e\t%.15e\n",
+                n, theta[n], dtheta[n], dphi[n], H_n);
     }
 
     fclose(particle);

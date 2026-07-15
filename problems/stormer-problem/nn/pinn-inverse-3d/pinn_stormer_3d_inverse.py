@@ -186,21 +186,48 @@ class Stormer3DInverseTrainer:
         # --- Compute ODE normalization scales at initial alpha1 ---
         # These make ODE residuals O(1), so w_ode is meaningful.
         a1_init = model.get_alpha1().item()
-        c_hat_init = self.rho0**2 * self.dphi0 + a1_init / self.rho0
-        force_ref = abs(c_hat_init**2 / self.rho0**3
-                        - 3 * a1_init * c_hat_init / self.rho0**4
-                        + 2 * a1_init**2 / self.rho0**5)
-        phi_rate_ref = abs(c_hat_init / self.rho0**2 - a1_init / self.rho0**3)
 
-        self.scale_rho = max(self.T_obs2 * force_ref, 1.0)
-        self.scale_phi = max(self.T_obs * phi_rate_ref, 1.0)
+        if self.mode == "equatorial":
+            c_hat_init = self.rho0**2 * self.dphi0 + a1_init / self.rho0
+            force_rho_ref = abs(c_hat_init**2 / self.rho0**3
+                                - 3 * a1_init * c_hat_init / self.rho0**4
+                                + 2 * a1_init**2 / self.rho0**5)
+            phi_rate_ref = abs(c_hat_init / self.rho0**2
+                               - a1_init / self.rho0**3)
+            self.scale_rho = max(self.T_obs2 * force_rho_ref, 1.0)
+            self.scale_Z = 1.0  # unused in equatorial
+            self.scale_phi = max(self.T_obs * phi_rate_ref, 1.0)
+        else:
+            R0 = math.sqrt(self.rho0**2 + self.Z0**2)
+            c_hat_init = (self.rho0**2 * self.dphi0
+                          + a1_init * self.rho0**2 / R0**3)
+            force_rho_ref = abs(
+                c_hat_init**2 / self.rho0**3
+                + 3 * a1_init**2 * self.rho0**3 / R0**8
+                - a1_init**2 * self.rho0 / R0**6
+                - 3 * a1_init * c_hat_init * self.rho0 / R0**5
+            )
+            force_Z_ref = abs(
+                3 * a1_init**2 * self.rho0**2 * self.Z0 / R0**8
+                - 3 * a1_init * c_hat_init * self.Z0 / R0**5
+            )
+            phi_rate_ref = abs(c_hat_init / self.rho0**2
+                               - a1_init / R0**3)
+            self.scale_rho = max(self.T_obs2 * force_rho_ref, 1.0)
+            self.scale_Z = max(self.T_obs2 * force_Z_ref, 1.0)
+            self.scale_phi = max(self.T_obs * phi_rate_ref, 1.0)
 
         print(f"  Mode: {self.mode}")
         print(f"  Observations: {len(t_obs)} points "
               f"(fraction={obs_fraction}, noise_std={noise_std})")
         print(f"  Collocation: {len(t_coll)} points")
         print(f"  T_obs = {self.T_obs:.2f}")
-        print(f"  ODE scales: rho={self.scale_rho:.2f}, phi={self.scale_phi:.2f}")
+        if self.mode == "3d":
+            print(f"  ODE scales: rho={self.scale_rho:.2f}, "
+                  f"Z={self.scale_Z:.2f}, phi={self.scale_phi:.2f}")
+        else:
+            print(f"  ODE scales: rho={self.scale_rho:.2f}, "
+                  f"phi={self.scale_phi:.2f}")
         print(f"  alpha1_true = {self.alpha1_true}, "
               f"alpha1_init = {model.get_alpha1().item():.4f}")
 
@@ -313,10 +340,43 @@ class Stormer3DInverseTrainer:
             phi_rate = c_hat / rho**2 - alpha1 / R**3
 
             r_rho = (d2rho_dt2 - self.T_obs2 * force_rho) / self.scale_rho
-            r_Z = (d2Z_dt2 - self.T_obs2 * force_Z) / self.scale_rho
+            r_Z = (d2Z_dt2 - self.T_obs2 * force_Z) / self.scale_Z
             r_phi = (dphi_dt - self.T_obs * phi_rate) / self.scale_phi
 
             return torch.mean(r_rho**2 + r_Z**2 + r_phi**2)
+
+    def loss_ode_phi_only(self):
+        """ODE residual using ONLY the phi equation (1st-order).
+
+        For 3D alpha1-only phase: the 2nd-order rho/Z residuals have
+        systematic errors from autograd that bias the alpha1 landscape.
+        The 1st-order phi equation dphi/dt = c_hat/rho² - alpha1/R³
+        is more accurate and has its minimum at the true alpha1.
+
+        For equatorial mode, falls back to full loss_ode().
+        """
+        if self.mode == "equatorial":
+            return self.loss_ode()
+
+        alpha1 = self.model.get_alpha1()
+        c_hat = self._c20_hat(alpha1)
+        t = self.t_coll_norm
+
+        out = self.model(t)
+        rho = out[:, 0:1]
+        Z = out[:, 1:2]
+        phi = out[:, 2:3]
+
+        ones = torch.ones_like(phi)
+        R = torch.sqrt(rho**2 + Z**2)
+
+        dphi_dt = torch.autograd.grad(
+            phi, t, ones, create_graph=True, retain_graph=True)[0]
+
+        phi_rate = c_hat / rho**2 - alpha1 / R**3
+        r_phi = (dphi_dt - self.T_obs * phi_rate) / self.scale_phi
+
+        return torch.mean(r_phi**2)
 
     def total_loss(self):
         """Compute total weighted loss."""

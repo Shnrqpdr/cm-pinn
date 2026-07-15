@@ -434,36 +434,80 @@ A trajetória reconstruída sobrepõe-se quase perfeitamente ao solver: erros ab
 | ODE loss final | $4.66 \times 10^{1}$ | $3.02 \times 10^{-6}$ |
 | Trajetória | Flat (rede destruída pelo ODE) | Perfeita |
 
-### 8.2 Experimentos planejados
+### 8.2 Resultados: Experimentos B/C (equatorial)
 
-| Exp | Dados | Ruído | O que testa | Status |
-|-----|-------|-------|-------------|--------|
-| A | 100% (1000 pts) | $\sigma = 0$ | Convergência básica | **FEITO** (0.002% erro) |
-| B 30% | 30% (300 pts) | $\sigma = 0$ | Robustez a esparsidade | Pendente |
-| B 5% | 5% (50 pts) | $\sigma = 0$ | Limite de esparsidade | Pendente |
-| C1 | 100% | $\sigma = 0.01$ | Ruído baixo | Pendente |
-| C2 | 100% | $\sigma = 0.05$ | Ruído moderado | Pendente |
-| C3 | 100% | $\sigma = 0.1$ | Ruído alto | Pendente |
+| Exp | Dados | Ruído | $n_\text{freq}$ | $\alpha_1$ final | Erro relativo | Status |
+|-----|-------|-------|-----------------|-----------------|---------------|--------|
+| A | 100% (1000 pts) | $\sigma = 0$ | 50 | 3036.94 | 0.002% | **FEITO** |
+| B 30% | 30% (300 pts) | $\sigma = 0$ | 20 | 3037.00 | 0.00009% | **FEITO** |
+| B 5% | 5% (50 pts) | $\sigma = 0$ | 5–20 | ~340–2060 | 32–89% | **FALHOU** |
+| C1 | 100% | $\sigma = 0.01$ | 50 | 3036.77 | 0.0075% | **FEITO** |
+| C2 | 100% | $\sigma = 0.05$ | 50 | 3040.16 | 0.10% | **FEITO** |
+| C3 | 100% | $\sigma = 0.1$ | 20 | 3035.19 | 0.060% | **FEITO** |
+
+**Resultados em:** `results/equatorial/proton1/{expB_30pct, expC1_noise0.01, expC2_noise0.05, expC3_noise0.1}/`
+
+#### 8.2.1 Achados sobre $n_\text{frequencies}$ e qualidade dos dados
+
+O parâmetro $n_\text{frequencies}$ controla a capacidade de alta frequência da rede via Fourier features. Com dados completos e limpos ($N_\text{obs} = 1000$, $\sigma = 0$), $n_\text{frequencies} = 50$ é necessário para representar as ~44 oscilações de $\rho(t)$ em $T = 2$ s.
+
+Porém, com dados degradados (esparsos ou ruidosos), $n_\text{frequencies}$ alto causa overfitting:
+
+- **Dados esparsos**: a rede memoriza os $N_\text{obs}$ pontos observados mas interpola mal entre eles. Na Fase 1 (alpha1-only), os residuais ODE avaliados nos 3000 pontos de colocação refletem a interpolação ruim, não a física — e o otimizador encontra um $\alpha_1$ espúrio (~800) que minimiza os residuais da rede imperfeita.
+- **Ruído alto**: a rede fitta o ruído de alta frequência, corrompendo os residuais ODE.
+
+**Solução**: reduzir $n_\text{frequencies}$ para regularizar a rede. Com $n_\text{frequencies} = 20$:
+- A rede não tem capacidade para memorizar pontos individuais ou fittar ruído
+- A interpolação entre pontos é suave e fisicamente razoável
+- A Fase 1 vê residuais ODE $O(1)$ (em vez de $10^{6}$–$10^{35}$) e converge para o $\alpha_1$ correto
+
+**Limiar de esparsidade**: com 30% (300 pts) e $n_\text{freq} = 20$, a identificação é excelente (erro $10^{-7}$). Com 5% (50 pts), falha com qualquer $n_\text{freq}$ testado — 50 pontos é sub-Nyquist para ~44 oscilações ($N_\text{Nyquist} = 88$). A amostragem insuficiente impede o warmup data-only de capturar a trajetória real, independentemente da regularização.
+
+#### 8.2.2 Detalhes por experimento
+
+**Exp B 30%** ($n_\text{freq} = 20$, warmup 10k épocas):
+- Fase 0: data loss $1.4 \times 10^{-6}$ (sem overfitting)
+- Fase 1: ODE loss começa em 3.3 → alpha1 converge para 3042.5 (erro 0.18%) em ~1000 épocas
+- Fase 2: ODE loss cai para $7 \times 10^{-6}$
+- L-BFGS: alpha1 ajusta para 3037.003 (erro $9.2 \times 10^{-7}$)
+
+**Exp C1** ($\sigma = 0.01$, $n_\text{freq} = 50$):
+- Fase 0: data loss $8.8 \times 10^{-5}$ (floor do ruído: $\sigma^2 = 10^{-4}$)
+- Fase 1: alpha1 → 3040.6 (erro 0.12%)
+- Final: alpha1 = 3036.77 (erro 0.0075%)
+
+**Exp C2** ($\sigma = 0.05$, $n_\text{freq} = 50$):
+- Fase 1: alpha1 → 3439.5 (erro 13%) — ruído degrada a Fase 1
+- L-BFGS corrige: alpha1 = 3040.16 (erro 0.10%)
+
+**Exp C3** ($\sigma = 0.1$, $n_\text{freq} = 20$):
+- Com $n_\text{freq} = 50$: FALHOU (alpha1 → 5897, erro 93%)
+- Com $n_\text{freq} = 20$: Fase 1 alpha1 → 3203.9 (erro 5.5%), L-BFGS corrige para 3035.19 (erro 0.060%)
+- Data loss final ~0.019 (floor: $\sigma^2 = 0.01$)
 
 Após completar equatorial, estender para 3D (Próton 1 com $Z_0 = 0.5$, $\dot{Z}_0 = 0.0$).
 
 ### 8.3 CLI
 
 ```bash
-# Equatorial — Exp A (configuração validada)
+# Equatorial — Exp A (configuração validada, dados limpos 100%)
 python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --tag v7_normalized
 
-# Equatorial — variações
-python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --fraction 0.3 --tag expB_30pct
+# Equatorial — esparsidade (reduzir n_frequencies para evitar overfitting)
+python train_inverse_equatorial.py --n-frequencies 20 --w-ode 1.0 --fraction 0.3 --warmup-epochs 10000 --tag expB_30pct
+python train_inverse_equatorial.py --n-frequencies 20 --w-ode 1.0 --fraction 0.05 --warmup-epochs 10000 --tag expB_5pct  # FALHA (sub-Nyquist)
+
+# Equatorial — ruído (reduzir n_frequencies para σ >= 0.1)
 python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --noise 0.01 --tag expC1
-python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --alpha1-init 1500 --tag init1500
+python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --noise 0.05 --tag expC2
+python train_inverse_equatorial.py --n-frequencies 20 --w-ode 1.0 --noise 0.1 --tag expC3
 
 # Parâmetros CLI disponíveis:
 #   --proton N            Próton (1, 2, 3)
 #   --fraction F          Fração de observações (0.0-1.0)
 #   --noise S             Desvio padrão do ruído
 #   --alpha1-init V       Chute inicial de alpha1
-#   --n-frequencies N     Fourier features (default: 15, usar 50 para T=2s)
+#   --n-frequencies N     Fourier features (default: 15, usar 50 para T=2s com dados limpos)
 #   --n-neurons N         Neurônios por camada (default: 128)
 #   --n-hidden N          Camadas ocultas (default: 4)
 #   --warmup-epochs N     Épocas de warmup (default: 5000)
@@ -505,6 +549,8 @@ python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --alpha1-init 
 | Variável auxiliar $w_\rho$ não observável | **RESOLVIDO** | Eliminada via formulação 2ª ordem (Seção 4.1 → 4.3). |
 | $M \sim 10^{-27}$ cria gradientes mal condicionados | **RESOLVIDO** | Formulação M-free: $\hat{c}_{20} = c_{20}/M$ (Seção 4.3.1). |
 | Rede não aprende alta frequência de $\rho$ | **RESOLVIDO** | $n_\text{frequencies} = 50$ para cobrir 44 oscilações em $T = 2$ s. |
+| Overfitting com dados esparsos/ruidosos | **RESOLVIDO** | Reduzir $n_\text{frequencies}$ (50 → 20) regulariza a interpolação. Ver Seção 8.2.1. |
+| Limite sub-Nyquist (5% dados) | **CONFIRMADO** | 50 pontos para 44 oscilações é sub-Nyquist. Warmup data-only não captura a trajetória real — Fase 1 diverge com qualquer $n_\text{freq}$. |
 | $\Delta t$ do solver insuficiente | Baixa | Solver simplético, conservação de energia verificada nos dados. |
 
 ---
@@ -526,15 +572,76 @@ python train_inverse_equatorial.py --n-frequencies 50 --w-ode 1.0 --alpha1-init 
 - 4 fases: warmup → $\alpha_1$-only → refinamento → L-BFGS
 - Resultados em `results/equatorial/proton1/expA_v7_normalized/`
 
-### Passo 4: Experimentos B/C (equatorial) — PENDENTE
-- Esparsidade (30%, 5%) e ruído ($\sigma = 0.01, 0.05, 0.1$)
-- Prótons 2 e 3
+### Passo 4: Experimentos B/C (equatorial) — **FEITO**
+- B 30% (300 pts, $n_\text{freq} = 20$): erro 0.00009% — melhor que Exp A
+- B 5% (50 pts): **FALHOU** — sub-Nyquist para ~44 oscilações
+- C1 ($\sigma = 0.01$, $n_\text{freq} = 50$): erro 0.0075%
+- C2 ($\sigma = 0.05$, $n_\text{freq} = 50$): erro 0.10%
+- C3 ($\sigma = 0.1$, $n_\text{freq} = 20$): erro 0.060%
+- Achado principal: $n_\text{frequencies}$ deve ser reduzido com dados degradados (Seção 8.2.1)
+- Resultados em `results/equatorial/proton1/{expB_30pct, expC1_noise0.01, expC2_noise0.05, expC3_noise0.1}/`
 
-### Passo 5: Extensão para 3D — PENDENTE
-- Gerar dados com `sv_3d.c` (`generate_dataset_3d.py`)
-- O modelo já suporta `mode="3d"` (3 outputs: $\rho, Z, \varphi$; 3 residuais)
-- Criar `train_inverse_3d.py` com mesma receita de 4 fases
-- Escolha de $n_\text{frequencies}$ depende das oscilações nos dados 3D
+### Passo 5: Extensão para 3D — EM PROGRESSO
+
+**Dados 3D (Próton 1):** 59 oscilações em $\rho$ (~29.4 Hz), 33 em $Z$ (~16.9 Hz). $n_\text{frequencies} = 60$ necessário.
+
+**Problema novo — 2nd-order ODE bias:** A paisagem de $\alpha_1$ usando os 3 residuais completos (incluindo $\ddot{\rho}$, $\ddot{Z}$) tem mínimo enviesado em $\alpha_1 \approx 3600$ (19% de erro), não no valor verdadeiro 3037. Causa: as derivadas de 2a ordem via autograd são imprecisas — o residual de $\ddot{\rho}$ e $\ddot{Z}$ domina e puxa o mínimo para um valor espúrio.
+
+**Solução — phi-only Phase 1:** A equação de $\dot{\varphi}$ (1a ordem) tem mínimo no valor correto $\alpha_1 = 3037$. Na Fase 1 ($\alpha_1$-only), usar APENAS o residual de $\dot{\varphi}$ para identificar $\alpha_1$. As Fases 2 e 3 usam os 3 residuais completos (mas com $\alpha_1$ congelado).
+
+**Também necessário para 3D:**
+- Rede maior: 6 camadas × 256 neurônios (vs 4×128 equatorial). A rede 4×128 não tem capacidade para 3 outputs com 59+33 oscilações.
+- $\omega_\text{data} = 10$ (vs 1.0 equatorial) para evitar degradação do data fit durante Fase 2.
+- $\alpha_1$ congelado na Fase 3 (L-BFGS) — a otimização conjunta destrói $\alpha_1$ no caso 3D.
+
+**Exp A (dados limpos, 100%):**
+
+| Fase | Épocas | Data loss final | ODE loss final | $\alpha_1$ | Erro relativo |
+|------|--------|-----------------|----------------|------------|---------------|
+| 0 (Warmup) | 5000 | $5.11 \times 10^{-7}$ | — | 5000 (frozen) | 64.6% |
+| 1 ($\alpha_1$-only, phi) | 5000 | $5.11 \times 10^{-7}$ | $3.32 \times 10^{-3}$ | 3036.45 | 0.018% |
+| 2 (Refinamento) | 15000 | $6.83 \times 10^{-3}$ | $6.62 \times 10^{-2}$ | 3036.45 (frozen) | 0.018% |
+| 3 (L-BFGS, frozen) | 5×20 | $6.65 \times 10^{-3}$ | $6.57 \times 10^{-2}$ | 3036.45 (frozen) | 0.018% |
+
+**Resultado final:** $\alpha_{1,\text{est}} = 3036.45$, erro relativo = $1.82 \times 10^{-4}$ (0.018%). Tempo: 8084 s (~2.2h).
+
+**Nota:** A reconstrução da trajetória (data loss ~6.6e-3) é pior que no equatorial (~1.9e-7) porque os residuais de 2a ordem são mais difíceis de satisfazer no 3D. Mas o objetivo principal — identificação de $\alpha_1$ — foi alcançado com excelente precisão.
+
+**Resultados em:** `results/3d/proton1/expA_expA_v2/`
+
+**Exp B 30% (dados esparsos) — PAUSADO:**
+- Fase 0 (warmup 10k épocas): data loss $1.99 \times 10^{-7}$ — convergência excelente mesmo com 300 pts
+- Fase 1 ($\alpha_1$-only, phi): em andamento, $\alpha_1$ convergiu para $\approx 2972.6$ (erro $\approx 2.1\%$) em ~1000 épocas e estabilizou. Experiência interrompida na Fase 1.
+- Configuração: $n_\text{freq} = 25$, 6×256, $\omega_\text{data} = 10$, warmup 10k épocas
+- **A retomar manualmente** com o comando CLI abaixo.
+
+**Exp C1/C2/C3 (ruído) — PENDENTE:**
+- Mesma configuração base do equatorial: C1 ($\sigma = 0.01$), C2 ($\sigma = 0.05$), C3 ($\sigma = 0.1$)
+- Para C3, usar $n_\text{freq} = 25$ (reduzido) como no equatorial
+
+**Tabela resumo 3D (Próton 1):**
+
+| Exp | Dados | Ruído | $n_\text{freq}$ | $\alpha_1$ final | Erro relativo | Status |
+|-----|-------|-------|-----------------|-----------------|---------------|--------|
+| A | 100% (1000 pts) | $\sigma = 0$ | 60 | 3036.45 | 0.018% | **FEITO** |
+| B 30% | 30% (300 pts) | $\sigma = 0$ | 25 | ~2972.6 (parcial) | ~2.1% (parcial) | **PAUSADO** |
+| C1 | 100% | $\sigma = 0.01$ | 60 | — | — | PENDENTE |
+| C2 | 100% | $\sigma = 0.05$ | 60 | — | — | PENDENTE |
+| C3 | 100% | $\sigma = 0.1$ | 25 | — | — | PENDENTE |
+
+**CLI:**
+```bash
+# 3D — Exp A (dados limpos, 6x256, w_data=10, phi-only Phase 1)
+python train_inverse_3d.py --n-frequencies 60 --n-hidden 6 --n-neurons 256 --w-data 10.0 --w-ode 1.0 --tag expA_v2
+
+# 3D — Exp B 30%
+python train_inverse_3d.py --n-frequencies 25 --n-hidden 6 --n-neurons 256 --w-data 10.0 --w-ode 1.0 --fraction 0.3 --warmup-epochs 10000 --tag expB_30pct
+
+# 3D — Exp C (ruído)
+python train_inverse_3d.py --n-frequencies 60 --n-hidden 6 --n-neurons 256 --w-data 10.0 --w-ode 1.0 --noise 0.01 --tag expC1_noise0.01
+python train_inverse_3d.py --n-frequencies 60 --n-hidden 6 --n-neurons 256 --w-data 10.0 --w-ode 1.0 --noise 0.05 --tag expC2_noise0.05
+python train_inverse_3d.py --n-frequencies 25 --n-hidden 6 --n-neurons 256 --w-data 10.0 --w-ode 1.0 --noise 0.1 --tag expC3_noise0.1
+```
 
 ---
 

@@ -270,6 +270,27 @@ def train(dataset_path, output_dir, alpha1_init=5000.0,
     }, model_path)
     print(f"\n  Model saved to {model_path}")
 
+    # Save trajectory data + history as .npz for post-processing
+    pred = trainer.predict(trainer.t_ref)
+    traj_arrays = {
+        "t_ref": trainer.t_ref,
+        "rho_pred": pred["rho"],
+        "rho_ref": trainer.rho_ref,
+        "phi_pred": pred["phi"],
+        "phi_ref": trainer.phi_ref,
+        "alpha1_estimated": np.array(a1_est),
+        "alpha1_true": np.array(a1_true),
+        "alpha1_rel_error": np.array(a1_err),
+        "hist_epoch": np.array(history["epoch"]),
+        "hist_total": np.array(history["total"]),
+        "hist_data": np.array(history["data"]),
+        "hist_ode": np.array(history["ode"]),
+        "hist_alpha1": np.array(history["alpha1"]),
+    }
+    traj_path = os.path.join(output_dir, "trajectory_data.npz")
+    np.savez_compressed(traj_path, **traj_arrays)
+    print(f"  Trajectory data saved to {traj_path}")
+
     _plot_results(trainer, history, output_dir)
 
     return model, trainer, history
